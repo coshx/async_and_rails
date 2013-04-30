@@ -1,0 +1,755 @@
+<!doctype html>
+<html lang="en">
+
+  <head>
+    <meta charset="utf-8">
+
+    <title>Make Your Application Snappier With Asynchronous Workers</title>
+    <!-- Made with Reveal.js, which is quite awesome. The license:
+
+    Copyright (C) 2013 Hakim El Hattab, http://hakim.se
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in
+    all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+    THE SOFTWARE.
+    -->
+
+    <meta name="description" content="David Kapp blabbing about using asynchronous workers with Rails (Resque in particular)">
+    <meta name="author" content="David Kapp">
+
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+    <link rel="stylesheet" href="css/reveal.css">
+    <link rel="stylesheet" href="css/default_theme.css" id="theme">
+
+    <!-- For syntax highlighting -->
+    <link rel="stylesheet" href="css/zenburn.css">
+
+    <!-- look nice in location bar -->
+    <link id="favicon" href="images/favicon.ico" rel="icon" type="image/x-icon" />
+
+    <!--[if lt IE 9]>
+    <script src="js/html5shiv.js"></script>
+    <![endif]-->
+  </head>
+
+  <body>
+
+    <div class="reveal">
+
+      <!-- Any section element inside of this container is displayed as a slide -->
+      <div class="slides">
+
+        <section>
+          <h1>Make Your</h1>
+          <h1>Applications Snappy!</h1>
+          <h3>Using Asynchronous Workers With Rails</h3>
+          <br/>
+          <p>
+            David Kapp @ <a href="http://coshx.com">Coshx Labs</a> / <a href="http://twitter.com/Happymrdave">@Happymrdave</a>
+          </p>
+          <a href="http://coshx.com"><img alt="Coshx Logo" class="logo" src="images/coshx_logo_small.png" /></a>
+        </section>
+
+        <section>
+           <img alt="Snail" src="images/snail.jpg" />
+           <p>
+             <small>
+               Image courtesy of MorgueFile:
+               <a href="http://mrg.bz/2pCToM">http://mrg.bz/2pCToM</a>
+             </small>
+           </p>
+        </section>
+
+        <section>
+          <img alt="Snail" src="images/speedsnail.jpg" />
+          <p>
+            <small>
+              Image courtesy of MorgueFile:
+              <a href="http://mrg.bz/Ev0biz">http://mrg.bz/Ev0biz</a>
+            </small>
+          </p>
+        </section>
+
+        <section>
+          <h2>HTTP Request time works differently.</h2>
+          <p class="fragment">A 1-minute HTTP request is just as bad as a 15-minute one.</p>
+        </section>
+
+        <section>
+          <img alt="Building under construction" src="images/building_construction.jpg" />
+          <p>
+            <small>
+              Image courtesy of MorgueFile:
+              <a href="http://mrg.bz/KAH1cd">http://mrg.bz/KAH1cd</a>
+            </small>
+          </p>
+        </section>
+
+        <section>
+          <h1>Definitions</h1>
+          <p class="fragment">Synchronous vs Asynchronous</p>
+          <p class="fragment">Concurrent vs Parallel</p>
+        </section>
+
+        <section>
+          <h2>Synchronous</h2>
+          <br/>
+          <blockquote>
+            Processing is done linearly and a new operation does not start until the previous operation finishes
+          </blockquote>
+          <br/>
+          <small>Broad defintion, please don't get pendantic</small>
+        </section>
+
+        <section>
+          <h2>Asynchronous</h2>
+          <br/>
+          <blockquote>
+            Processing that is not performed linearly and program execution continues regardless of whether something has finished or not
+          </blockquote>
+          <br/>
+          <small>Broad defintion, please don't get pendantic</small>
+        </section>
+
+        <section>
+          <p>Most things are a mix. Odds are you're not entirely synchronous or asynchronous.</p>
+          <br/>
+          <p class="fragment">And that's just peachy.</p>
+        </section>
+
+        <section>
+          <h2>Concurrent</h2>
+          <br/>
+          <blockquote cite="http://www.linux-mag.com/id/7411/">
+            A concurrent program or algorithm is one where operations can occur at the same time...  Concurrency is a property of the program.
+          </blockquote>
+          <br/>
+          <small>
+            Douglas Eadline
+            <a href="http://www.linux-mag.com/id/7411/">http://www.linux-mag.com/id/7411/</a>
+          </small>
+        </section>
+
+        <section>
+          <h2>Parallel</h2>
+          <br/>
+          <blockquote cite="http://en.wikipedia.org/wiki/Parallel_Computing">
+            Parallel computing is a form of computation in which many calculations are carried out simultaneously.
+          </blockquote>
+          <br/>
+          <small>
+            <a href="http://en.wikipedia.org/wiki/Parallel_Computing">http://en.wikipedia.org/wiki/Parallel_Computing</a>
+          </small>
+        </section>
+
+        <section>
+          <h2>What We Want Out of</h2>
+          <h2>Asynchronous Workers</h2>
+          <br/>
+          <p class="fragment">Ability to asynchronously process slow things, preferably in parallel, with main program</p>
+          <br/>
+          <p class="fragment">That is, we want slow things to not slow down our Rails application</p>
+        </section>
+
+        <section>
+          <h1>Asynchronous</h1>
+          <h1>Workers</h1>
+        </section>
+
+        <section>
+          <h2>An Asynchronous Worker:</h2>
+          <ul>
+            <li class="fragment">Is a separate process from Rails app</li>
+            <li class="fragment">Reads data from a specified place and processes it</li>
+            <li class="fragment">Periodically polls this data source to see if there's more work</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2>"Queue"?</h2>
+          <br/>
+          <p class="fragment">The data store for async workers is often called a "queue" because we think of it as a place where jobs are enqueued.</p>
+          <br/>
+          <p class="fragment">It may or may not 'actually' be a queue but that doesn't really matter.</p>
+        </section>
+
+        <section>
+          <img alt="Cute worker" src="images/worker.jpg" />
+          <p>
+            <small>
+              Image courtesy of MorgueFile:
+              <a href="http://mrg.bz/xqISC7">http://mrg.bz/xqISC7</a>
+            </small>
+          </p>
+        </section>
+
+        <section>
+          <img alt="Truck getting rid of snail" src="images/truck_with_snail.jpg" />
+          <p>
+            <small>
+              Original truck image courtesy of MorgueFile:
+              <a href="http://mrg.bz/OYMdFE">http://mrg.bz/OYMdFE</a>
+            </small>
+          </p>
+        </section>
+
+        <section>
+          <h2>So why do we care about isolating slow things when using Rails so much?</h2>
+          <br/>
+          <h2 class="fragment">Fast response => Application feels snappy
+        </section>
+
+        <section>
+          <h3>What people think Rails does</h3>
+          <img alt="Oversimplified Rails" src="images/http_rails_diagram.png" />
+        </section>
+
+        <section>
+          <h3>What is Rails doing?</h3>
+          <ul>
+            <li class="fragment roll-in">Request comes in and goes to middleware</li>
+            <li class="fragment roll-in">Middleware does some processing</li>
+            <li class="fragment roll-in">Processed request goes to Rails</li>
+            <li class="fragment roll-in">Rails reads and processes arguments</li>
+            <li class="fragment roll-in">Request is routed to controller</li>
+            <li class="fragment roll-in">Filters (before_actions now) are run</li>
+            <li class="fragment roll-in">Various logic performed</li>
+            <li class="fragment roll-in">Assorted database operations done</li>
+            <li class="fragment roll-in">View templates rendered</li>
+            <li class="fragment roll-in">Response prepared</li>
+            <li class="fragment roll-in">Response sent back to user</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2>What is Rails doing?</h2>
+          <h3 class="fragment">
+            <strong>...</strong>
+          </h3>
+          <br/>
+          <h2 class="fragment">
+            A lot!
+          </h2>
+        </section>
+
+        <section>
+          <h1>Focus</h1>
+          <h3 class="fragment">Let Rails do what it's good at</h3>
+          <h3 class="fragment">And let something else do the rest</h3>
+        </section>
+
+        <section>
+          <h2>Good things to have workers do</h2>
+          <ul>
+            <li class="fragment">Call external APIs</li>
+            <ul class="fragment">
+              <li>Especially slow ones!</li>
+            </ul>
+            <li class="fragment">Number crunching</li>
+            <li class="fragment">Document generation</li>
+            <li class="fragment">Image or video manipulation</li>
+            <li class="fragment">Sending email</li>
+            <li class="fragment">Payment processing</li>
+            <li class="fragment">Geolocation</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2><em>Anything</em>&nbsp; that's not required</h2>
+          <h2>immediately upon responding</h2>
+        </section>
+
+        <section>
+          <h2>Caveat:</h2>
+          <h2 class="fragment">Be careful with mutable state when you might have the same object <br/>modified by multiple workers.</h2>
+          <p class="fragment">If this is a real or definite possibility you need to be careful.</p>
+          <p class="fragment">There's many ways to deal with this, but that problem realm is beyond scope of this presentation.</p>
+        </section>
+
+        <section>
+          <h2>New Things</h2>
+          <p>To add to your system</p>
+          <br/>
+          <p class="fragment">...hopefully exciting things!</p>
+        </section>
+
+        <section>
+          <h2>Basic Pieces</h2>
+          <ul>
+            <li class="fragment roll-in">Data store</li>
+            <li class="fragment roll-in">Worker Processes</li>
+            <li class="fragment roll-in">Process Monitor</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2>Redis</h2>
+          <p class="fragment">Advanced Key-Value Store</p>
+        </section>
+
+        <section>
+          <h2>Redis</h2>
+          <ul>
+            <li class="fragment roll-in">Uses in-memory dataset with options for persistence &amp; durability</li>
+            <li class="fragment roll-in">Fast at both reads and writes</li>
+            <li class="fragment roll-in">Has lots of different data types you can work with</li>
+            <li class="fragment roll-in">Built-in Pub-Sub mechanism</li>
+            <li class="fragment roll-in">...none of which you really need to think about for Resque, but it's really cool.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2>Redis</h2>
+          <p class="fragment roll-in">Lead developer is Salvatore Sanfilippo</p>
+        </section>
+
+        <section>
+          <h2>Resque</h2>
+          <p class="fragment">Library that uses Redis to share data with workers</p>
+          <p class="fragment">Workers are separate processes that are mostly self-managing</p>
+          <p class="fragment">Each independent "chunk" of work they do is a "job" - one worker will process many jobs</p>
+        </section>
+
+        <section>
+          <h2>Monit or God</h2>
+          <p class="fragment">Keep worker processes alive and crankin'</p>
+          <p class="fragment">Process that will kill/restart other processes (your workers) under certain conditions</p>
+          <p class="fragment">(Be nice to your DevOps person and work with them on this)</p>
+          <p class="fragment">Not going into too much detail on this, as it varies a lot depending on how/where you're deploying.</p>
+          <p class="fragment">Usually not used during development but <em>very</em> important in production.</p>
+        </section>
+
+        <section>
+          <h2>Side Note:</h2>
+          <h2>Other Asynchronous Workers</h2>
+          <p class="fragment">Other libraries similar to Resque are DelayedJob and Sidekiq.</p>
+          <p class="fragment">We're focusing on  conceptual similarities here, but don't assume Resque in the best choice for your project.</p>
+          <p class="fragment">Instead, do some research and make sure you know what is really right for you.</p>
+        </section>
+
+        <section>
+          <h1 style="font-size: 1500%;">!</h1>
+        </section>
+
+        <section>
+          <h2>"Why do I need all this... stuff?"</h2>
+        </section>
+
+        <section>
+          <h2>Standard Simple Rails App</h2>
+          <img alt="Standard simple Rails app" src="images/standard_simple_rails_app.png" />
+        </section>
+
+        <section>
+          <p>Adding in asynchronous job processing is a significant architectural change.</p>
+          <p class="fragment">In exchange, you get significant new functionality.</p>
+        </section>
+
+        <section>
+          <h2>Rails App With Resque</h2>
+          <img alt="Resque system overview" src="images/resque_system_overview.png" />
+        </section>
+
+        <section>
+          <h2>"Significant architectural change" ?</h2>
+          <p class="fragment">Good news!</p>
+          <p class="fragment">You can very gradually start using it.</p>
+          <p class="fragment">It's not an all-or-nothing choice. Target high-value things first.</p>
+        </section>
+
+        <section>
+          <h1>I want CODE!</h1>
+        </section>
+
+        <section>
+          <h2>Good news: the code is the easy part.</h2>
+          <br/>
+          <h2 class="fragment">If you understand how to get the pieces working together, you've done the hard stuff.</h2>
+        </section>
+
+        <section>
+          <h2>A Worker Class</h2>
+          <pre class="fragment"><code contenteditable>
+class SignupEmailer
+  @queue = :email
+
+  def self.perform(user_id)
+    user = User.find(user_id) # ActiveRecord model
+    Resque.logger.info("Sending welcome email to #{user.fullname}")
+    UserMailer.signup_welcome(user).deliver # ActionMailer
+    AdminMailer.new_signup(user).deliver # More ActionMailer
+  end
+end
+          </code></pre>
+          <p class="fragment">I usually put Resque workers in lib, but your team should decide the right place together.</p>
+        </section>
+
+        <section>
+          <h2>Things To Notice</h2>
+          <ul>
+            <li class="fragment">@queue in the class - does not have to be unique, but can be</li>
+            <br/>
+            <li class="fragment">perform <em>class</em> method - receives arguments that were enqueued with the job</li>
+            <ul>
+              <li class="fragment">Which means yes, you need one class per job type.</li>
+            </ul>
+          </ul>
+        </section>
+
+        <section>
+           <img alt="Cat noticing Rails" src="images/you_used_rails_cat.png" />
+           <p>
+             <small>
+               Original image courtesy of MorgueFile:
+               <a href="http://mrg.bz/I8CuBl">http://mrg.bz/I8CuBl</a>
+             </small>
+           </p>
+        </section>
+
+        <section>
+          <h2>Yet More Things To Notice</h2>
+          <ul>
+            <li class="fragment">Why yes Mrs. Kitty, we're using Rails stuff inside the perform method.</li>
+            <ul>
+              <li class="fragment">Not the default - you need to configure this manually.</li>
+              <li class="fragment">Optionally, you can leave it out for a smaller memory footprint &amp; loading speed, but often people load it.</li>
+            </ul>
+          </ul>
+        </section>
+
+        <section>
+          <h2>Loading Rails for Resque Workers</h2>
+          <p class="fragment">Over in lib/tasks/resque.rake</p>
+          <pre class="fragment"><code contenteditable>
+require 'resque'
+
+task "resque:setup" => :environment do
+  # any other setup as needed
+  ImportantLib::SomeClass.config do |c|
+    c.cat = "Needz Cheezburger"
+  end
+end
+          </code></pre>
+        </section>
+
+        <section>
+          <h2>Configuration</h2>
+          <p class="fragment">Just put config stuff in an initializer (how about resque.rb?)</p>
+          <pre class="fragment"><code contenteditable>
+my_config = ReadSomeConfigSomewhere.read
+host = my_config[:redis][:host]
+port = my_config[:redis][:port]
+database = my_config[:resque][:database]
+server = "#{host}:#{port}:#{database}"
+
+Resque.redis = server
+          </code></pre>
+        </section>
+
+        <section>
+          <h2>Calling Your Astute Worker</h2>
+          <pre class="fragment"><code contenteditable>
+class UsersController < ApplicationController
+
+  def create
+    @user = User.new(params[:user])
+    if @user.save
+      Resque.enqueue(SignupEmailer, user.id)
+      flash[:notice] = "Welcome to ILikeToPetCats.com, #{@user.name!}"
+    else
+      # probably not emailing someone every time a signup fails...
+      # or maybe you are?
+      Resque.enqueue(SignupFailureLogger, params[:user])
+      flash[:notice] = "D00D FIX UR INFO BEFORE PETTING CATS"
+    end
+  end
+end
+          </code></pre>
+        <p class="fragment"><small>Note: We're leaving out a lot here (logging, formats, etc) but let's not get caught up in those details.</small></p>
+        </section>
+
+        <section>
+          <h2>Things To Notice</h2>
+          <ul>
+            <li class="fragment">You call Resque.enqueue(&lt;class&gt;, &lt;args&gt;) to enqueue a job</li>
+            <li class="fragment">Whatever args you enqueue are serialized as JSON</li>
+            <ul>
+              <li class="fragment">So don't pass arbitrary objects, prefer simple values</li>
+            </ul>
+          </ul>
+        </section>
+
+        <section>
+          <h2>Starting Up</h2>
+           <img alt="Keys in ignition" src="images/keys_in_ignition.jpg" />
+           <p>
+             <small>
+               Original image courtesy of MorgueFile:
+               <a href="http://mrg.bz/crwX8D">http://mrg.bz/crwX8D</a>
+             </small>
+           </p>
+        </section>
+
+        <section>
+          <h2>Starting A Worker</h2>
+            <p class="fragment"><em>Lots</em> of options, we won't cover them all. Read the manual.</p>
+            <p class="fragment">Very basic example and usually works while developing:</p>
+            <br/>
+            <p class="fragment"><code>QUEUE=email rake resque:work</code></p>
+        </section>
+
+        <section>
+          <h3>You really want a more detailed one? It's not really pretty or fun, you know?</h3>
+          <p class="fragment">...fine, here's a more detailed example:</p>
+            <p class="fragment"><code>/bin/sh -l -c cd /var/web/hosts/my_app/current; nohup bundle exec rake resque:work RAILS_ENV=some_env QUEUE=email VERBOSE=1 PIDFILE=tmp/pids/email_resque_worker_001.pid >> log/emailresque_worker_001.log 2>&amp;1</code>
+        </section>
+
+        <section>
+          <h3>How many workers should I run?</h3>
+          <p class="fragment">There's no 'standard' amount, it depends on your application and workload.</p>
+          <p class="fragment">Try running two or three and monitor queue sizes. Adjust as needed.</p>
+        </section>
+
+        <section>
+           <img alt="Pile of logs" src="images/logs.jpg" />
+           <p>
+             <small>
+               Original image courtesy of MorgueFile:
+               <a href="http://mrg.bz/FTa9gH">http://mrg.bz/FTa9gH</a>
+             </small>
+           </p>
+        </section>
+
+        <section>
+          <h2>Logging</h2>
+          <ul>
+            <li class="fragment">Resque has it's own logger, conveniently named "Resque.logger".
+            <li class="fragment">It defaults to 'logging' to STDOUT by default. You can configure it as you like.</li>
+            <li class="fragment">Including writing to the Rails logs if you really want. (Beware of "checking" statements.)
+          </ul>
+        </section>
+
+        <section>
+          <h2>Verbosity</h2>
+          <ul>
+            <li class="fragment">Startup args VERBOSE and VVERBOSE are helpful in development. Use them.</li>
+            <ul>
+              <li class="fragment">Also remember that logging in production env is often buffered, so make sure you are aware of that while setting up logging for your application.</li>
+              <ul>
+                <li class="fragment">Note: VERBOSE and VVERBOSE are considered deprecated and will not be around in Resque 2.0.</li>
+              </ul>
+              <li class="fragment">And remember that Rails.logger stuff will go to the <em>Rails</em> logs, not the Resque output.</li>
+            </ul>
+          </ul>
+        </section>
+
+        <section>
+          <h2>However!</h2>
+          <p class="fragment">Resque.logger is only in 1.24 on. If you're on an older version then you should just redirect from STDOUT.</p>
+          <p class="fragment">Just set Resque.logger = &lt;whatever&gt; over in your initializer.</p>
+          <p class="fragment">Redque.logger configuration will replace VERBOSE and VVERBOSE in Resque 2.0.</p>
+        </section>
+
+        <section>
+          <h2>Failure</h2>
+          <img alt="Car that failed" src="images/fail_car.png" />
+          <p>
+            <small>
+              Image courtesy of MorgueFile:
+              <a href="http://mrg.bz/K3SECW">http://mrg.bz/K3SECW</a>
+            </small>
+          </p>
+        </section>
+
+        <section>
+          <h2>Handling Failure</h2>
+          <p class="fragment">Failed jobs are added to a 'failure' queue by default. Support is included for also sending failure info to Airbrake.</p>
+          <p class="fragment">You can restart failed jobs through the Resque::Failure class, but it's a little awkward:</p>
+          <pre class="fragment"><code contenteditable>
+# Requeue all jobs in the failed queue
+(Resque::Failure.count-1).downto(0).each { |i| Resque::Failure.requeue(i) }
+
+# Clear the failed queue
+Resque::Failure.clear
+          </code></pre>
+          <small class="fragment">Code from <a href="http://ariejan.net/2010/08/23/resque-how-to-requeue-failed-jobs/">http://ariejan.net/2010/08/23/resque-how-to-requeue-failed-jobs/</a></small>
+        </section>
+
+        <section>
+          <h2>But do you <em>really</em>&nbsp; want to restart?</h2>
+          <p class="fragment">Think carefully about if it makes sense to restart failed jobs.</p>
+          <p class="fragment">Sometimes yes, it makes sense. Other times, not really.</p>
+        </section>
+
+        <section>
+          <h2>Handy-Dandy Web Interface</h2>
+          <img alt="resque web sample" src="images/resque_web_sample.png" />
+          <p>
+            <small>
+              Image from <a href="https://github.com/resque/resque/tree/1-x-stable">Resque Github page.</a>
+            </small>
+          </p>
+        </section>
+
+        <section>
+          <h2>Batteries Included</h2>
+          <p class="fragment">A handy Sinatra app is included to help you see what's going on.</p>
+          <p class="fragment">Just use resque-web from the command line to start it.</p>
+          <p class="fragment">You can mount it inside a Rails 3 app as well if you want.</p>
+          <p class="fragment">Just make sure you don't make it visible to the outside world if you do!</p>
+        </section>
+
+        <section>
+          <h2>When Things Go Wrong</h2>
+        </section>
+
+        <section>
+          <h2>Troubleshooting</h2>
+          <p class="fragment">Even when you're careful, things will go awry.</p>
+          <p class="fragment">So here's some things to keep in mind.</p>
+        </section>
+
+        <section>
+          <h2>Troubleshooting Tips</h2>
+          <ul>
+            <li class="fragment">You must restart workers to pick up on code changes.</li>
+            <ul>
+              <li class="fragment">They do <em>not</em> automatically reload like Rails!</li>
+              <li class="fragment">Schema changes while workers are running will confuse them. A lot.</li>
+            </ul>
+            <li class="fragment">Easy to 'disable' enqueueing so that things run inline: `Resque.inline = true` (testing!)</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2>Troubleshooting Tips</h2>
+          <ul>
+            <li class="fragment">Make sure you don't have 'extra' workers processing jobs</li>
+            <ul>
+              <li class="fragment">Use redis-cli `monitor` and `smembers "resque:workers"`</li>
+              <li class="fragment">Evidence that you have extra workers running can be hard to find, but if you look carefully, it can be found.</li>
+            </ul>
+          </ul>
+        </section>
+
+        <section>
+          <h3>Alternatives &amp; Similar Technologies</h3>
+        </section>
+
+        <section>
+          <h2>Reactor Pattern</h2>
+          <p class="fragment">The reactor pattern is setting up an event loop generally on a single thread to rapidly go through enqueued tasks.</p>
+          <br/>
+          <p class="fragment">Not really the same thing as asynchronous workers except for conceptual idea of sequential event processing.</p>
+          <br/>
+          <p class="fragment">Some Rails application servers support this, but you don't want to run an event loop in your Rails request handler. That won't work well.</p>
+        </section>
+
+        <section>
+          <h2>Sidekiq, DelayedJob, and AMQP</h2>
+          <p class="fragment">Sidekiq and DelayedJob are both very similar in concept and use. Definitely consider them.</p>
+          <br/>
+          <p class="fragment">AMQP is a standard defining behavior for "message-oriented middleware."</p>
+          <br/>
+          <p class="fragment">Very useful if you need ActiveMQ or RabbitMQ or the like. Requires a lot more setup than Resque and friends but can offer a lot of robust functionality.</p>
+        </section>
+
+        <section>
+          <h2>Actor Pattern</h2>
+          <p class="fragment">Actors are entities that operate on message queues/inboxes rather than having methods called on them.</p>
+          <br/>
+          <p class="fragment">Idea of having a message queue that you operate on is conceptually similar to asynchronous workers.</p>
+        </section>
+
+        <section>
+          <p class>Can sort of think of asynchronous workers as a specific implementation of actors in a process-based model.</p>
+          <br/>
+          <p class="fragment">Take a look at the <a href="http://celluloid.io/">Celluloid</a> project for a nice implementation of Actors in Ruby.</p>
+        </section>
+
+        <section>
+          <h2>Plugins</h2>
+          <p class="fragment">Resque has hooks you can use to make plugins.</p>
+          <p class="fragment">For example, resque-scheduler is somewhat popular.</p>
+          <p class="fragment">Look around to see if there are plugins that fit your needs, or make &amp; share with the community.</p>
+        </section>
+
+        <section>
+          <h2>The Future</h2>
+          <p class="fragment">Resque 2.0 is under active development led up by Steve Klabnik and others.</p>
+          <p class="fragment">Use 1.x for now though. 2.0 isn't ready for production use and it's constantly changing.</p>
+          <p class="fragment">Rails 4.x (not 4.0) will have a Rails.queue standard for worker queues to plug into.</p>
+        </section>
+
+        <section>
+          <h2>Phew!</h2>
+        </section>
+
+        <section>
+          <h3>Any Questions?</h3>
+          <img alt="Questioning Cat" src="images/cat_box.png" />
+        </section>
+
+        <section>
+          <h2>Thank you so much for listening!</h2>
+
+          <p>David Kapp</p>
+          <p><a href="https://twitter.com/happymrdave">@Happymrdave</a> @ <a href="http://coshx.com">Coshx Labs</a></p>
+          <p><a href="https://twitter.com/happymrdave"><img alt="Twitter Cat" src="images/twitter_pic.png" /></a></p>
+          <p><a href="http://coshx.com"><img class="logo" alt="Coshx Logo" src="images/coshx_logo_small.png" /></a></p>
+        </section>
+
+      </div>
+
+    </div>
+
+    <script src="js/head_min.js"></script>
+    <script src="js/reveal.js"></script>
+
+    <script>
+
+      // Full list of configuration options available here:
+      // https://github.com/hakimel/reveal.js#configuration
+      Reveal.initialize({
+        controls: true,
+        progress: true,
+        history: true,
+        center: true,
+
+        theme: Reveal.getQueryHash().theme, // available themes are in /css/theme
+        transition: Reveal.getQueryHash().transition || 'default', // default/cube/page/concave/zoom/linear/fade/none
+
+        // Optional libraries used to extend on reveal.js
+        dependencies: [
+          { src: 'js/classList.js', condition: function() { return !document.body.classList; } },
+          { src: 'js/showdown.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+          { src: 'js/markdown.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+          { src: 'js/highlight.js', async: true, callback: function() { hljs.initHighlightingOnLoad(); } },
+          { src: 'js/zoom.js', async: true, condition: function() { return !!document.body.classList; } },
+          { src: 'js/notes.js', async: true, condition: function() { return !!document.body.classList; } }
+          // { src: 'plugin/remotes/remotes.js', async: true, condition: function() { return !!document.body.classList; } }
+        ]
+      });
+
+    </script>
+
+  </body>
+</html>
